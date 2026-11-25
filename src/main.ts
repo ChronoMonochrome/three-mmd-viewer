@@ -15,45 +15,84 @@ import {
 import { addSceneLighting } from './lighting';
 import { createViewerUI } from './viewerUI';
 
+const DEFAULT_MODEL_PATH = '/models/model.pmx';
+const DEFAULT_ANIMATION_PATH = '/animations/run.vmd';
+const ASSET_MANIFEST_PATH = '/mmd-assets.json';
+
+type AnimationSelection = string | null | 'none';
+
+interface AssetManifest {
+  models: string[];
+  animations: string[];
+}
+
 let activeBreastSpringPreset: BreastSpringPresetName = DEFAULT_BREAST_SPRING_PRESET;
+
+async function fetchAssetManifest(): Promise<AssetManifest> {
+  const response = await fetch(ASSET_MANIFEST_PATH, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Asset manifest request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data: unknown = await response.json();
+  if (!data || typeof data !== 'object') {
+    throw new Error('Asset manifest has an invalid format.');
+  }
+
+  const manifest = data as Partial<AssetManifest>;
+  return {
+    models: Array.isArray(manifest.models)
+      ? manifest.models.filter((path): path is string => typeof path === 'string' && path.toLowerCase().endsWith('.pmx'))
+      : [],
+    animations: Array.isArray(manifest.animations)
+      ? manifest.animations.filter((path): path is string => typeof path === 'string' && path.toLowerCase().endsWith('.vmd'))
+      : [],
+  };
+}
+
+function disposeModelResources(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.geometry) geometries.add(mesh.geometry);
+
+    if (!mesh.material) return;
+    const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+    for (const material of meshMaterials) {
+      materials.add(material);
+
+      for (const value of Object.values(material)) {
+        if (value instanceof THREE.Texture) textures.add(value);
+      }
+    }
+  });
+
+  for (const texture of textures) texture.dispose();
+  for (const material of materials) material.dispose();
+  for (const geometry of geometries) geometry.dispose();
+
+  const skinnedMesh = root as THREE.SkinnedMesh;
+  if (skinnedMesh.isSkinnedMesh) skinnedMesh.skeleton.dispose();
+}
 
 async function init(): Promise<void> {
   window.__BREAST_SPRING_MOD__ = ENABLE_BREAST_SPRING_MOD;
 
   let breastSpring: ReturnType<typeof createBreastSpringController> | null = null;
+  let activeMesh: THREE.SkinnedMesh | null = null;
+  let helperMesh: THREE.SkinnedMesh | null = null;
+  let activeModelPath: string | null = null;
+  let selectedModelPath: string | null = null;
+  let selectedAnimation: AnimationSelection = null;
+  let modelRequestId = 0;
+  let animationRequestId = 0;
   let fpsCounterEnabled = ENABLE_FPS_COUNTER;
   let fpsFrameCount = 0;
   let fpsWindowStart = performance.now();
-
-  const viewerUI = createViewerUI(
-    {
-      onPresetChange: (preset) => {
-        activeBreastSpringPreset = preset;
-
-        if (ENABLE_BREAST_SPRING_MOD_LOGGING) {
-          console.info(`[BreastSpringMod] Preset selected: ${preset}`, BREAST_SPRING_PRESETS[preset]);
-        }
-      },
-      onSpringEnabledChange: (enabled) => {
-        window.__BREAST_SPRING_MOD__ = enabled;
-        breastSpring?.reset();
-
-        if (ENABLE_BREAST_SPRING_MOD_LOGGING) {
-          console.info(`[BreastSpringMod] Spring ${enabled ? 'enabled' : 'disabled'}.`);
-        }
-      },
-      onFpsCounterChange: (enabled) => {
-        fpsCounterEnabled = enabled;
-        fpsFrameCount = 0;
-        fpsWindowStart = performance.now();
-      },
-    },
-    {
-      initialSpringEnabled: ENABLE_BREAST_SPRING_MOD,
-      initialFpsEnabled: ENABLE_FPS_COUNTER,
-      initialPreset: DEFAULT_BREAST_SPRING_PRESET,
-    },
-  );
 
   const hasAmmo = await ensureAmmoLoaded();
   if (!hasAmmo) {
@@ -93,61 +132,155 @@ async function init(): Promise<void> {
   addSceneLighting(scene);
   scene.add(new THREE.GridHelper(30, 30));
 
-  const helper = new MMDAnimationHelper({
-    physics: hasAmmo,
-  });
+  const helper = new MMDAnimationHelper({ physics: hasAmmo });
   const loader = new MMDLoader();
 
-  loader.load(
-    '/models/model.pmx',
-    (mesh) => {
-      scene.add(mesh);
-      viewerUI.setModel(mesh);
+  const viewerUI = createViewerUI(
+    {
+      onPresetChange: (preset) => {
+        activeBreastSpringPreset = preset;
 
-      breastSpring = createBreastSpringController(
-        mesh,
-        () => BREAST_SPRING_PRESETS[activeBreastSpringPreset],
-      );
+        if (ENABLE_BREAST_SPRING_MOD_LOGGING) {
+          console.info(`[BreastSpringMod] Preset selected: ${preset}`, BREAST_SPRING_PRESETS[preset]);
+        }
+      },
+      onSpringEnabledChange: (enabled) => {
+        window.__BREAST_SPRING_MOD__ = enabled;
+        breastSpring?.reset();
 
-      loader.loadAnimation(
-        '/animations/run.vmd',
-        mesh,
-        (clip) => {
-          clip.tracks = clip.tracks.filter(
-            (track) => !track.name.endsWith('.position'),
-          );
-
-          helper.add(mesh, {
-            animation: clip,
-            physics: hasAmmo,
-            warmup: hasAmmo ? 60 : 0,
-          });
-
-          breastSpring?.reset();
-        },
-        undefined,
-        (error) => {
-          console.error('[MMD] Failed to load VMD animation:', error);
-
-          if (!helper.meshes.includes(mesh)) {
-            helper.add(mesh, {
-              physics: hasAmmo,
-              warmup: hasAmmo ? 60 : 0,
-            });
-            breastSpring?.reset();
-          }
-        },
-      );
+        if (ENABLE_BREAST_SPRING_MOD_LOGGING) {
+          console.info(`[BreastSpringMod] Spring ${enabled ? 'enabled' : 'disabled'}.`);
+        }
+      },
+      onFpsCounterChange: (enabled) => {
+        fpsCounterEnabled = enabled;
+        fpsFrameCount = 0;
+        fpsWindowStart = performance.now();
+      },
+      onModelChange: (path) => {
+        selectedModelPath = path;
+        loadModel(path ?? DEFAULT_MODEL_PATH);
+      },
+      onAnimationChange: (selection) => {
+        selectedAnimation = selection;
+        if (activeMesh) applySelectedAnimation(activeMesh);
+      },
     },
-    (xhr) => {
-      if (xhr.total > 0) {
-        console.log(`Model loading: ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
-      }
-    },
-    (error) => {
-      console.error('[MMD] Failed to load model:', error);
+    {
+      initialSpringEnabled: ENABLE_BREAST_SPRING_MOD,
+      initialFpsEnabled: ENABLE_FPS_COUNTER,
+      initialPreset: DEFAULT_BREAST_SPRING_PRESET,
     },
   );
+
+  function removeMeshFromHelper(mesh: THREE.SkinnedMesh): void {
+    if (helperMesh !== mesh) return;
+
+    breastSpring?.restoreBasePose();
+    helper.remove(mesh);
+    helperMesh = null;
+  }
+
+  function applySelectedAnimation(mesh: THREE.SkinnedMesh): void {
+    const requestId = ++animationRequestId;
+    const animationPath = selectedAnimation === 'none'
+      ? null
+      : selectedAnimation ?? DEFAULT_ANIMATION_PATH;
+
+    const attachToHelper = (clip?: THREE.AnimationClip): void => {
+      if (requestId !== animationRequestId || activeMesh !== mesh) return;
+
+      removeMeshFromHelper(mesh);
+
+      if (clip) {
+        clip.tracks = clip.tracks.filter(
+          (track) => !track.name.endsWith('.position'),
+        );
+      }
+
+      helper.add(mesh, {
+        ...(clip ? { animation: clip } : {}),
+        physics: hasAmmo,
+        warmup: hasAmmo ? 60 : 0,
+      });
+      helperMesh = mesh;
+      breastSpring?.reset();
+
+      viewerUI.setAssetStatus(
+        animationPath
+          ? `Анимация: ${animationPath}`
+          : 'Модель загружена без VMD-анимации.',
+      );
+    };
+
+    if (!animationPath) {
+      attachToHelper();
+      return;
+    }
+
+    viewerUI.setAssetStatus(`Загрузка анимации: ${animationPath}`);
+    loader.loadAnimation(
+      animationPath,
+      mesh,
+      (clip) => attachToHelper(clip),
+      undefined,
+      (error) => {
+        if (requestId !== animationRequestId || activeMesh !== mesh) return;
+        console.error(`[MMD] Failed to load VMD animation: ${animationPath}`, error);
+
+        if (helperMesh !== mesh) attachToHelper();
+        viewerUI.setAssetStatus(`Не удалось загрузить анимацию: ${animationPath}`);
+      },
+    );
+  }
+
+  function loadModel(path: string): void {
+    if (activeMesh && activeModelPath === path) {
+      viewerUI.setAssetStatus(`Уже загружена модель: ${path}`);
+      return;
+    }
+
+    const requestId = ++modelRequestId;
+    viewerUI.setAssetStatus(`Загрузка модели: ${path}`);
+
+    loader.load(
+      path,
+      (mesh) => {
+        if (requestId !== modelRequestId) {
+          disposeModelResources(mesh);
+          return;
+        }
+
+        if (activeMesh) {
+          removeMeshFromHelper(activeMesh);
+          scene.remove(activeMesh);
+          disposeModelResources(activeMesh);
+        }
+
+        activeMesh = mesh;
+        activeModelPath = path;
+        scene.add(mesh);
+        viewerUI.setModel(mesh);
+
+        breastSpring = createBreastSpringController(
+          mesh,
+          () => BREAST_SPRING_PRESETS[activeBreastSpringPreset],
+        );
+
+        applySelectedAnimation(mesh);
+      },
+      (xhr) => {
+        if (requestId !== modelRequestId || xhr.total <= 0) return;
+        const percent = Math.round((xhr.loaded / xhr.total) * 100);
+        viewerUI.setAssetStatus(`Загрузка модели: ${percent}% · ${path}`);
+      },
+      (error) => {
+        if (requestId !== modelRequestId) return;
+        console.error(`[MMD] Failed to load model: ${path}`, error);
+        viewerUI.setAssetStatus(`Не удалось загрузить модель: ${path}`);
+      },
+    );
+  }
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -191,6 +324,23 @@ async function init(): Promise<void> {
   }
 
   requestAnimationFrame(animate);
+
+  loadModel(DEFAULT_MODEL_PATH);
+
+  void fetchAssetManifest()
+    .then((manifest) => {
+      viewerUI.setAssetOptions(manifest.models, manifest.animations);
+
+      if (selectedModelPath === null) {
+        viewerUI.setAssetStatus(
+          `Найдено моделей: ${manifest.models.length}, анимаций: ${manifest.animations.length}. Загружен путь по умолчанию.`,
+        );
+      }
+    })
+    .catch((error: unknown) => {
+      console.warn('[MMD] Could not read the public asset manifest. Default paths remain available.', error);
+      viewerUI.setAssetStatus('Список файлов недоступен. Используются пути по умолчанию.');
+    });
 }
 
 init().catch((error) => {

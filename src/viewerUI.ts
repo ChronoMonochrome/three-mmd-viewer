@@ -11,6 +11,8 @@ export interface ViewerUICallbacks {
   onPresetChange: (preset: BreastSpringPresetName) => void;
   onSpringEnabledChange: (enabled: boolean) => void;
   onFpsCounterChange: (enabled: boolean) => void;
+  onModelChange: (path: string | null) => void;
+  onAnimationChange: (selection: string | null | 'none') => void;
 }
 
 export interface ViewerUIOptions {
@@ -23,6 +25,8 @@ export interface ViewerUIController {
   setModel: (mesh: THREE.SkinnedMesh) => void;
   setFPS: (fps: number) => void;
   setFpsCounterEnabled: (enabled: boolean) => void;
+  setAssetOptions: (models: string[], animations: string[]) => void;
+  setAssetStatus: (message: string) => void;
 }
 
 export function createViewerUI(
@@ -69,6 +73,60 @@ export function createViewerUI(
     isCollapsed = !isCollapsed;
     syncCollapsedState();
   });
+
+  const assetsSection = document.createElement('section');
+  assetsSection.className = 'mmd-section';
+
+  const assetsTitle = document.createElement('h2');
+  assetsTitle.className = 'mmd-section-title';
+  assetsTitle.textContent = 'Модель и анимация';
+
+  const modelLabel = document.createElement('label');
+  modelLabel.className = 'mmd-field-label';
+  modelLabel.textContent = 'Модель PMX';
+
+  const modelSelect = document.createElement('select');
+  const defaultModelOption = document.createElement('option');
+  defaultModelOption.value = '';
+  defaultModelOption.textContent = 'По умолчанию (/models/model.pmx)';
+  modelSelect.append(defaultModelOption);
+
+  const animationLabel = document.createElement('label');
+  animationLabel.className = 'mmd-field-label';
+  animationLabel.textContent = 'Анимация VMD';
+
+  const animationSelect = document.createElement('select');
+  const defaultAnimationOption = document.createElement('option');
+  defaultAnimationOption.value = '';
+  defaultAnimationOption.textContent = 'По умолчанию (/animations/run.vmd)';
+  const noAnimationOption = document.createElement('option');
+  noAnimationOption.value = 'none';
+  noAnimationOption.textContent = 'Без анимации';
+  animationSelect.append(defaultAnimationOption, noAnimationOption);
+
+  const assetStatus = document.createElement('div');
+  assetStatus.className = 'mmd-active-preset';
+  assetStatus.textContent = 'Поиск PMX и VMD в папке public…';
+
+  modelSelect.addEventListener('change', () => {
+    callbacks.onModelChange(modelSelect.value || null);
+  });
+
+  animationSelect.addEventListener('change', () => {
+    const selection = animationSelect.value === 'none'
+      ? 'none'
+      : animationSelect.value || null;
+    callbacks.onAnimationChange(selection);
+  });
+
+  assetsSection.append(
+    assetsTitle,
+    modelLabel,
+    modelSelect,
+    animationLabel,
+    animationSelect,
+    assetStatus,
+  );
 
   const physicsSection = document.createElement('section');
   physicsSection.className = 'mmd-section';
@@ -176,7 +234,7 @@ export function createViewerUI(
   treeContainer.append(loadingText);
 
   treeSection.append(treeTitle, treeHelp, treeContainer);
-  content.append(physicsSection, settingsSection, treeSection);
+  content.append(assetsSection, physicsSection, settingsSection, treeSection);
   panel.append(header, content);
   syncCollapsedState();
 
@@ -185,6 +243,32 @@ export function createViewerUI(
   function setFpsCounterEnabled(enabled: boolean): void {
     fpsCheckbox.checked = enabled;
     fpsCounter.style.display = enabled ? '' : 'none';
+  }
+
+  function setAssetOptions(models: string[], animations: string[]): void {
+    const currentModel = modelSelect.value;
+    const currentAnimation = animationSelect.value;
+
+    modelSelect.replaceChildren(defaultModelOption);
+    for (const path of models) {
+      const option = document.createElement('option');
+      option.value = path;
+      option.textContent = path;
+      modelSelect.append(option);
+    }
+
+    animationSelect.replaceChildren(defaultAnimationOption, noAnimationOption);
+    for (const path of animations) {
+      const option = document.createElement('option');
+      option.value = path;
+      option.textContent = path;
+      animationSelect.append(option);
+    }
+
+    modelSelect.value = models.includes(currentModel) ? currentModel : '';
+    animationSelect.value = currentAnimation === 'none' || animations.includes(currentAnimation)
+      ? currentAnimation
+      : '';
   }
 
   return {
@@ -212,5 +296,9 @@ export function createViewerUI(
     },
 
     setFpsCounterEnabled,
+    setAssetOptions,
+    setAssetStatus(message: string): void {
+      assetStatus.textContent = message;
+    },
   };
 }
