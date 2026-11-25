@@ -789,6 +789,22 @@ function installViewerStyles(): void {
   padding: 8px 5px;
   color: #a4afbf;
   }
+  #mmd-viewer-panel .mmd-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  }
+
+  #mmd-viewer-panel.is-collapsed {
+  width: auto;
+  }
+
+  #mmd-viewer-panel .mmd-panel-toggle {
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 12px;
+  }
   @media (max-width: 600px) {
     #mmd-viewer-panel {
     top: 8px;
@@ -906,6 +922,8 @@ function createViewerUI(
 ): { setModel: (mesh: THREE.SkinnedMesh) => void } {
   installViewerStyles();
 
+  let isCollapsed = true;
+
   const panel = document.createElement('aside');
   panel.id = 'mmd-viewer-panel';
 
@@ -919,10 +937,27 @@ function createViewerUI(
   subtitle.className = 'mmd-panel-subtitle';
   subtitle.textContent = 'Настройки модели и физики';
   titleWrap.append(title, subtitle);
-  header.append(titleWrap);
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.className = 'mmd-panel-toggle';
+
+  header.append(titleWrap, toggleBtn);
 
   const content = document.createElement('div');
   content.className = 'mmd-panel-content';
+
+  const syncCollapsedState = () => {
+    panel.classList.toggle('is-collapsed', isCollapsed);
+    content.style.display = isCollapsed ? 'none' : '';
+    toggleBtn.textContent = isCollapsed ? 'Развернуть' : 'Свернуть';
+    toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
+  };
+
+  toggleBtn.addEventListener('click', () => {
+    isCollapsed = !isCollapsed;
+    syncCollapsedState();
+  });
 
   const physicsSection = document.createElement('section');
   physicsSection.className = 'mmd-section';
@@ -993,6 +1028,7 @@ function createViewerUI(
   treeSection.append(treeTitle, treeHelp, treeContainer);
   content.append(physicsSection, treeSection);
   panel.append(header, content);
+  syncCollapsedState();
   document.body.appendChild(panel);
 
   return {
