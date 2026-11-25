@@ -6,22 +6,245 @@ import { MMDLoader, MMDAnimationHelper } from '@takahirox/three-mmd';
 // Глобальный флаг включения рантайм-мода пружинной физики груди.
 const ENABLE_BREAST_SPRING_MOD = true;
 
-// Параметры пружины. Сначала оставляем исходные значения,
-// чтобы проверить исправление накопления поворота отдельно от настройки физики.
-const BREAST_SPRING_CONFIG = {
-  stiffness: 65,
-  damping: 9.5,
-  pitchFromAccelY: 0.08,
-  pitchFromAccelZ: 0.02,
-  yawFromAccelX: 0.002,
-  rollFromAccelX: 0.008,
-  accelSmoothing: 0.3,
-  invertPitch: false,
-  maxAccel: 60,
-  maxPitchRad: 0.16,
-  maxYawRad: 0.05,
-  maxRollRad: 0.09,
-};
+// Пресеты пружинной физики груди: от едва заметного до максимально выраженного.
+// Для переключения поменяй ACTIVE_BREAST_SPRING_PRESET.
+// Рекомендуемый стартовый вариант: 'strong'.
+const BREAST_SPRING_PRESETS = {
+  // 1. Едва заметное движение, почти без дополнительного раскачивания.
+  subtle: {
+    stiffness: 55,
+    damping: 11.5,
+    pitchFromAccelY: 0.13,
+    pitchFromAccelZ: 0.035,
+    yawFromAccelX: 0.0025,
+    rollFromAccelX: 0.010,
+    accelSmoothing: 0.32,
+    invertPitch: false,
+    maxAccel: 70,
+    maxPitchRad: 0.20, // 11.5°
+    maxYawRad: 0.06,
+    maxRollRad: 0.10,
+  },
+
+  // 2. Мягкое, относительно естественное движение.
+  natural: {
+    stiffness: 45,
+    damping: 9.5,
+    pitchFromAccelY: 0.20,
+    pitchFromAccelZ: 0.06,
+    yawFromAccelX: 0.0035,
+    rollFromAccelX: 0.014,
+    accelSmoothing: 0.34,
+    invertPitch: false,
+    maxAccel: 80,
+    maxPitchRad: 0.28, // 16.0°
+    maxYawRad: 0.075,
+    maxRollRad: 0.13,
+  },
+
+  // 3. Хорошо заметное движение без намеренно экстремальной амплитуды.
+  noticeable: {
+    stiffness: 36,
+    damping: 8.0,
+    pitchFromAccelY: 0.28,
+    pitchFromAccelZ: 0.09,
+    yawFromAccelX: 0.005,
+    rollFromAccelX: 0.020,
+    accelSmoothing: 0.36,
+    invertPitch: false,
+    maxAccel: 95,
+    maxPitchRad: 0.38, // 21.8°
+    maxYawRad: 0.10,
+    maxRollRad: 0.17,
+  },
+
+  // 4. Сильный bounce. Выбран по умолчанию, чтобы эффект был явно виден.
+  strong: {
+    stiffness: 30,
+    damping: 7.0,
+    pitchFromAccelY: 0.38,
+    pitchFromAccelZ: 0.12,
+    yawFromAccelX: 0.0065,
+    rollFromAccelX: 0.027,
+    accelSmoothing: 0.40,
+    invertPitch: false,
+    maxAccel: 110,
+    maxPitchRad: 0.48, // 27.5°
+    maxYawRad: 0.12,
+    maxRollRad: 0.21,
+  },
+
+  // 5. Максимальная амплитуда. Может выглядеть преувеличенно на некоторых моделях.
+  extreme: {
+    stiffness: 25,
+    damping: 6.0,
+    pitchFromAccelY: 0.50,
+    pitchFromAccelZ: 0.16,
+    yawFromAccelX: 0.008,
+    rollFromAccelX: 0.035,
+    accelSmoothing: 0.43,
+    invertPitch: false,
+    maxAccel: 120,
+    maxPitchRad: 0.56, // 32.1°
+    maxYawRad: 0.15,
+    maxRollRad: 0.25,
+  },
+  extreme2: {
+    stiffness: 23,
+    damping: 5.8,
+    pitchFromAccelY: 0.58,
+    pitchFromAccelZ: 0.185,
+    yawFromAccelX: 0.0085,
+    rollFromAccelX: 0.037,
+    accelSmoothing: 0.44,
+    invertPitch: false,
+    maxAccel: 135,
+    maxPitchRad: 0.64, // 36.7°
+    maxYawRad: 0.16,
+    maxRollRad: 0.265,
+  },
+
+  extreme3: {
+    stiffness: 22,
+    damping: 5.6,
+    pitchFromAccelY: 0.66,
+    pitchFromAccelZ: 0.21,
+    yawFromAccelX: 0.009,
+    rollFromAccelX: 0.039,
+    accelSmoothing: 0.45,
+    invertPitch: false,
+    maxAccel: 150,
+    maxPitchRad: 0.72, // 41.3°
+    maxYawRad: 0.17,
+    maxRollRad: 0.28,
+  },
+
+  extreme4: {
+    stiffness: 21,
+    damping: 5.4,
+    pitchFromAccelY: 0.74,
+    pitchFromAccelZ: 0.235,
+    yawFromAccelX: 0.0095,
+    rollFromAccelX: 0.041,
+    accelSmoothing: 0.46,
+    invertPitch: false,
+    maxAccel: 165,
+    maxPitchRad: 0.80, // 45.8°
+    maxYawRad: 0.18,
+    maxRollRad: 0.295,
+  },
+
+  extreme5: {
+    stiffness: 20,
+    damping: 5.2,
+    pitchFromAccelY: 0.82,
+    pitchFromAccelZ: 0.26,
+    yawFromAccelX: 0.010,
+    rollFromAccelX: 0.043,
+    accelSmoothing: 0.47,
+    invertPitch: false,
+    maxAccel: 180,
+    maxPitchRad: 0.88, // 50.4°
+    maxYawRad: 0.19,
+    maxRollRad: 0.31,
+  },
+
+  extreme6: {
+    stiffness: 19,
+    damping: 5.0,
+    pitchFromAccelY: 0.90,
+    pitchFromAccelZ: 0.285,
+    yawFromAccelX: 0.0105,
+    rollFromAccelX: 0.045,
+    accelSmoothing: 0.48,
+    invertPitch: false,
+    maxAccel: 195,
+    maxPitchRad: 0.96, // 55.0°
+    maxYawRad: 0.20,
+    maxRollRad: 0.325,
+  },
+
+  extreme7: {
+    stiffness: 18,
+    damping: 4.8,
+    pitchFromAccelY: 0.98,
+    pitchFromAccelZ: 0.31,
+    yawFromAccelX: 0.011,
+    rollFromAccelX: 0.047,
+    accelSmoothing: 0.49,
+    invertPitch: false,
+    maxAccel: 210,
+    maxPitchRad: 1.04, // 59.6°
+    maxYawRad: 0.21,
+    maxRollRad: 0.34,
+  },
+
+  extreme8: {
+    stiffness: 17,
+    damping: 4.6,
+    pitchFromAccelY: 1.06,
+    pitchFromAccelZ: 0.335,
+    yawFromAccelX: 0.0115,
+    rollFromAccelX: 0.049,
+    accelSmoothing: 0.50,
+    invertPitch: false,
+    maxAccel: 225,
+    maxPitchRad: 1.12, // 64.2°
+    maxYawRad: 0.22,
+    maxRollRad: 0.355,
+  },
+
+  extreme9: {
+    stiffness: 16,
+    damping: 4.4,
+    pitchFromAccelY: 1.14,
+    pitchFromAccelZ: 0.36,
+    yawFromAccelX: 0.012,
+    rollFromAccelX: 0.051,
+    accelSmoothing: 0.51,
+    invertPitch: false,
+    maxAccel: 240,
+    maxPitchRad: 1.20, // 68.8°
+    maxYawRad: 0.23,
+    maxRollRad: 0.37,
+  },
+
+  extreme10: {
+    stiffness: 15,
+    damping: 4.2,
+    pitchFromAccelY: 1.22,
+    pitchFromAccelZ: 0.385,
+    yawFromAccelX: 0.0125,
+    rollFromAccelX: 0.053,
+    accelSmoothing: 0.52,
+    invertPitch: false,
+    maxAccel: 255,
+    maxPitchRad: 1.28, // 73.3°
+    maxYawRad: 0.24,
+    maxRollRad: 0.385,
+  },
+
+  extreme11: {
+    stiffness: 14,
+    damping: 4.0,
+    pitchFromAccelY: 1.30,
+    pitchFromAccelZ: 0.41,
+    yawFromAccelX: 0.013,
+    rollFromAccelX: 0.055,
+    accelSmoothing: 0.53,
+    invertPitch: false,
+    maxAccel: 270,
+    maxPitchRad: 1.36, // 77.9°
+    maxYawRad: 0.25,
+    maxRollRad: 0.40,
+  }
+} as const;
+
+type BreastSpringPresetName = keyof typeof BREAST_SPRING_PRESETS;
+
+// Доступные варианты: 'subtle' | 'natural' | 'noticeable' | 'strong' | 'extreme'.
+const ACTIVE_BREAST_SPRING_PRESET: BreastSpringPresetName = 'extreme5';
+const BREAST_SPRING_CONFIG = BREAST_SPRING_PRESETS[ACTIVE_BREAST_SPRING_PRESET];
 
 const BREAST_BONE_INCLUDE_REGEX = /(左胸|右胸|胸|乳|breast|boob|bust|oppai)/i;
 const BREAST_BONE_EXCLUDE_REGEX = /(親|ジンバル|アンカー|先|parent|gimbal|anchor|tip)/i;
@@ -171,6 +394,11 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
                                                                  hasAppliedSpring: false,
   }));
 
+  console.info(
+    `[BreastSpringMod] Пресет: ${ACTIVE_BREAST_SPRING_PRESET}`,
+    BREAST_SPRING_CONFIG,
+  );
+
   if (states.length > 0) {
     console.log(
       '[BreastSpringMod] Выбраны кости груди:',
@@ -251,7 +479,7 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
       }
 
       // Защищаем интегратор от слишком больших скачков времени.
-      const safeDt = THREE.MathUtils.clamp(dt, 1 / 120, 0.033);
+      const safeDt = Math.min(dt, 0.033);
 
       debugAccumTime += dt;
       const shouldLog = debugAccumTime >= 0.5;
