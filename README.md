@@ -17,11 +17,15 @@ To use another file, move it into `public/` and update the path passed to `loade
 
 ## Project Structure
 
-* `src/main.ts` & `src/index.html` — Main TypeScript entry point, Three.js scene/renderer setup, animation loop, and collapsible viewer UI
-* `public/` — Static assets including `.pmx` models, `.vmd` animations, textures, and `ammo` runtime files
-* `inspect_pmx_physics.py` & `PMX-Scripting-Tools/` — Python utilities for inspecting and editing PMX files
-* `run_server.py` — Starts the Vite dev server and manages an `ngrok` tunnel using settings from `.env`
-* `vite.config.ts` & `tsconfig.json` — Vite and TypeScript configuration
+- `index.html` — Vite entry page.
+- `src/main.ts` — scene, renderer, model loading, animation loop, and UI wiring.
+- `src/config.ts` — feature flags, spring presets, and preset labels.
+- `src/breastSpring.ts` — breast spring controller and non-accumulating pose handling.
+- `src/ammo.ts` — Ammo.js loader.
+- `src/lighting.ts` — reduced-intensity scene lighting.
+- `src/viewerUI.ts` — collapsible settings panel and FPS control.
+- `src/viewerStyles.ts` — viewer panel and FPS counter styles.
+- `src/modelTree.ts` — model object/material visibility tree.
 
 ## Getting Started
 
