@@ -5,6 +5,11 @@ import {
   type BreastSpringPresetName,
 } from './config';
 import { createObjectTreeNode } from './modelTree';
+import { DEFAULT_LIGHTING_SETTINGS, type LightingSettings } from './lighting';
+import {
+  DEFAULT_MATERIAL_COMPATIBILITY_SETTINGS,
+  type MaterialCompatibilitySettings,
+} from './materialCompatibility';
 import { installViewerStyles } from './viewerStyles';
 
 export interface ViewerUICallbacks {
@@ -13,12 +18,19 @@ export interface ViewerUICallbacks {
   onFpsCounterChange: (enabled: boolean) => void;
   onModelChange: (path: string | null) => void;
   onAnimationChange: (selection: string | null | 'none') => void;
+  onLightingChange: (settings: LightingSettings) => void;
+  onOutlineEnabledChange: (enabled: boolean) => void;
+  onMaterialCompatibilityChange: (settings: MaterialCompatibilitySettings) => void;
 }
 
 export interface ViewerUIOptions {
   initialSpringEnabled: boolean;
   initialFpsEnabled: boolean;
   initialPreset: BreastSpringPresetName;
+  initialLighting: LightingSettings;
+  initialMaterialCompatibility: MaterialCompatibilitySettings;
+  initialOutlineEnabled: boolean;
+  outlineAvailable: boolean;
 }
 
 export interface ViewerUIController {
@@ -29,6 +41,62 @@ export interface ViewerUIController {
   setAssetStatus: (message: string) => void;
 }
 
+function createRangeControl(
+  labelText: string,
+  min: number,
+  max: number,
+  step: number,
+  initialValue: number,
+  onChange: (value: number) => void,
+): HTMLElement {
+  const wrapper = document.createElement('label');
+  wrapper.className = 'mmd-range-control';
+
+  const topRow = document.createElement('span');
+  topRow.className = 'mmd-range-heading';
+
+  const label = document.createElement('span');
+  label.textContent = labelText;
+
+  const valueText = document.createElement('output');
+  valueText.textContent = initialValue.toFixed(2);
+  topRow.append(label, valueText);
+
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.value = String(initialValue);
+  input.addEventListener('input', () => {
+    const value = Number(input.value);
+    valueText.textContent = value.toFixed(2);
+    onChange(value);
+  });
+
+  wrapper.append(topRow, input);
+  return wrapper;
+}
+
+function createCheckbox(
+  text: string,
+  checked: boolean,
+  onChange: (enabled: boolean) => void,
+): HTMLLabelElement {
+  const label = document.createElement('label');
+  label.className = 'mmd-check-row';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = checked;
+  checkbox.addEventListener('change', () => onChange(checkbox.checked));
+
+  const caption = document.createElement('span');
+  caption.textContent = text;
+  label.append(checkbox, caption);
+  return label;
+}
+
 export function createViewerUI(
   callbacks: ViewerUICallbacks,
   options: ViewerUIOptions,
@@ -36,6 +104,10 @@ export function createViewerUI(
   installViewerStyles();
 
   let isCollapsed = true;
+  let lightingSettings: LightingSettings = { ...options.initialLighting };
+  let materialSettings: MaterialCompatibilitySettings = {
+    ...options.initialMaterialCompatibility,
+  };
 
   const panel = document.createElement('aside');
   panel.id = 'mmd-viewer-panel';
@@ -50,13 +122,12 @@ export function createViewerUI(
 
   const subtitle = document.createElement('div');
   subtitle.className = 'mmd-panel-subtitle';
-  subtitle.textContent = 'Настройки модели и физики';
+  subtitle.textContent = 'Настройки модели и отображения';
   titleWrap.append(title, subtitle);
 
   const toggleButton = document.createElement('button');
   toggleButton.type = 'button';
   toggleButton.className = 'mmd-panel-toggle';
-
   header.append(titleWrap, toggleButton);
 
   const content = document.createElement('div');
@@ -111,7 +182,6 @@ export function createViewerUI(
   modelSelect.addEventListener('change', () => {
     callbacks.onModelChange(modelSelect.value || null);
   });
-
   animationSelect.addEventListener('change', () => {
     const selection = animationSelect.value === 'none'
       ? 'none'
@@ -135,16 +205,11 @@ export function createViewerUI(
   physicsTitle.className = 'mmd-section-title';
   physicsTitle.textContent = 'Физика груди';
 
-  const springLabel = document.createElement('label');
-  springLabel.className = 'mmd-check-row';
-
-  const springCheckbox = document.createElement('input');
-  springCheckbox.type = 'checkbox';
-  springCheckbox.checked = options.initialSpringEnabled;
-
-  const springText = document.createElement('span');
-  springText.textContent = 'Дополнительная пружина';
-  springLabel.append(springCheckbox, springText);
+  const springCheckbox = createCheckbox(
+    'Дополнительная пружина',
+    options.initialSpringEnabled,
+    callbacks.onSpringEnabledChange,
+  );
 
   const presetLabel = document.createElement('label');
   presetLabel.className = 'mmd-field-label';
@@ -163,10 +228,6 @@ export function createViewerUI(
   activePresetText.className = 'mmd-active-preset';
   activePresetText.textContent = `Активный пресет: ${options.initialPreset}`;
 
-  springCheckbox.addEventListener('change', () => {
-    callbacks.onSpringEnabledChange(springCheckbox.checked);
-  });
-
   presetSelect.addEventListener('change', () => {
     const preset = presetSelect.value as BreastSpringPresetName;
     if (!(preset in BREAST_SPRING_PRESETS)) return;
@@ -177,10 +238,104 @@ export function createViewerUI(
 
   physicsSection.append(
     physicsTitle,
-    springLabel,
+    springCheckbox,
     presetLabel,
     presetSelect,
     activePresetText,
+  );
+
+  const visualSection = document.createElement('section');
+  visualSection.className = 'mmd-section';
+
+  const visualTitle = document.createElement('h2');
+  visualTitle.className = 'mmd-section-title';
+  visualTitle.textContent = 'Изображение и освещение';
+
+  const lightingHelp = document.createElement('p');
+  lightingHelp.className = 'mmd-tree-help';
+  lightingHelp.textContent =
+    'Подними заполняющий свет, если кожа слишком тёмная. Снижай основной и верхний свет, если материалы пересвечены.';
+
+  const updateLighting = (key: keyof LightingSettings, value: number): void => {
+    lightingSettings = { ...lightingSettings, [key]: value };
+    callbacks.onLightingChange({ ...lightingSettings });
+  };
+
+  const hemisphereControl = createRangeControl(
+    'Верхний / окружающий свет', 0, 2, 0.05,
+    lightingSettings.hemisphereIntensity,
+    (value) => updateLighting('hemisphereIntensity', value),
+  );
+  const directionalControl = createRangeControl(
+    'Направленный свет', 0, 2, 0.05,
+    lightingSettings.directionalIntensity,
+    (value) => updateLighting('directionalIntensity', value),
+  );
+  const ambientFillControl = createRangeControl(
+    'Заполнение теней', 0, 1.5, 0.05,
+    lightingSettings.ambientFillIntensity,
+    (value) => updateLighting('ambientFillIntensity', value),
+  );
+
+  const outlineCheckbox = createCheckbox(
+    'Контуры MMD',
+    options.initialOutlineEnabled && options.outlineAvailable,
+    callbacks.onOutlineEnabledChange,
+  );
+  const outlineInput = outlineCheckbox.querySelector('input');
+  if (outlineInput && !options.outlineAvailable) outlineInput.disabled = true;
+
+  const outlineStatus = document.createElement('p');
+  outlineStatus.className = 'mmd-tree-help';
+  outlineStatus.textContent = options.outlineAvailable
+    ? 'Используются контуры, заданные в PMX.'
+    : 'Контуры недоступны: установленная версия @takahirox/three-mmd не экспортирует MMDOutlineEffect.';
+
+  const forceDoubleSidedCheckbox = createCheckbox(
+    'Двусторонние поверхности',
+    materialSettings.forceDoubleSided,
+    (enabled) => {
+      materialSettings = { ...materialSettings, forceDoubleSided: enabled };
+      callbacks.onMaterialCompatibilityChange({ ...materialSettings });
+    },
+  );
+
+  const forceOutlinesCheckbox = createCheckbox(
+    'Принудительные контуры для всех материалов',
+    materialSettings.forceOutlines,
+    (enabled) => {
+      materialSettings = { ...materialSettings, forceOutlines: enabled };
+      callbacks.onMaterialCompatibilityChange({ ...materialSettings });
+    },
+  );
+
+  const outlineThicknessControl = createRangeControl(
+    'Масштаб толщины контуров', 0.25, 3, 0.05,
+    materialSettings.outlineThicknessScale,
+    (value) => {
+      materialSettings = { ...materialSettings, outlineThicknessScale: value };
+      callbacks.onMaterialCompatibilityChange({ ...materialSettings });
+    },
+  );
+
+  if (!options.outlineAvailable) {
+    const forceOutlinesInput = forceOutlinesCheckbox.querySelector('input');
+    const thicknessInput = outlineThicknessControl.querySelector('input');
+    if (forceOutlinesInput) forceOutlinesInput.disabled = true;
+    if (thicknessInput) thicknessInput.disabled = true;
+  }
+
+  visualSection.append(
+    visualTitle,
+    lightingHelp,
+    hemisphereControl,
+    directionalControl,
+    ambientFillControl,
+    outlineCheckbox,
+    outlineStatus,
+    forceDoubleSidedCheckbox,
+    forceOutlinesCheckbox,
+    outlineThicknessControl,
   );
 
   const settingsSection = document.createElement('section');
@@ -190,28 +345,21 @@ export function createViewerUI(
   settingsTitle.className = 'mmd-section-title';
   settingsTitle.textContent = 'Настройки';
 
-  const fpsLabel = document.createElement('label');
-  fpsLabel.className = 'mmd-check-row';
-
-  const fpsCheckbox = document.createElement('input');
-  fpsCheckbox.type = 'checkbox';
-  fpsCheckbox.checked = options.initialFpsEnabled;
-
-  const fpsText = document.createElement('span');
-  fpsText.textContent = 'Счётчик FPS';
-  fpsLabel.append(fpsCheckbox, fpsText);
-  settingsSection.append(settingsTitle, fpsLabel);
-
   const fpsCounter = document.createElement('div');
   fpsCounter.id = 'mmd-fps-counter';
   fpsCounter.textContent = 'FPS: --';
   fpsCounter.style.display = options.initialFpsEnabled ? '' : 'none';
 
-  fpsCheckbox.addEventListener('change', () => {
-    const enabled = fpsCheckbox.checked;
-    setFpsCounterEnabled(enabled);
-    callbacks.onFpsCounterChange(enabled);
-  });
+  const fpsCheckbox = createCheckbox(
+    'Счётчик FPS',
+    options.initialFpsEnabled,
+    (enabled) => {
+      fpsCounter.style.display = enabled ? '' : 'none';
+      callbacks.onFpsCounterChange(enabled);
+    },
+  );
+
+  settingsSection.append(settingsTitle, fpsCheckbox);
 
   const treeSection = document.createElement('section');
   treeSection.className = 'mmd-section';
@@ -234,14 +382,14 @@ export function createViewerUI(
   treeContainer.append(loadingText);
 
   treeSection.append(treeTitle, treeHelp, treeContainer);
-  content.append(assetsSection, physicsSection, settingsSection, treeSection);
+  content.append(assetsSection, physicsSection, visualSection, settingsSection, treeSection);
   panel.append(header, content);
   syncCollapsedState();
-
   document.body.append(panel, fpsCounter);
 
   function setFpsCounterEnabled(enabled: boolean): void {
-    fpsCheckbox.checked = enabled;
+    const fpsInput = fpsCheckbox.querySelector('input');
+    if (fpsInput) fpsInput.checked = enabled;
     fpsCounter.style.display = enabled ? '' : 'none';
   }
 
@@ -290,9 +438,7 @@ export function createViewerUI(
     },
 
     setFPS(fps: number): void {
-      if (Number.isFinite(fps)) {
-        fpsCounter.textContent = `FPS: ${Math.round(fps)}`;
-      }
+      if (Number.isFinite(fps)) fpsCounter.textContent = `FPS: ${Math.round(fps)}`;
     },
 
     setFpsCounterEnabled,

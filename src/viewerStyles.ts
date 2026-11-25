@@ -118,6 +118,36 @@ export function installViewerStyles(): void {
       color: #9eacc0;
       font-size: 11px;
     }
+    #mmd-viewer-panel .mmd-range-control {
+      display: block;
+      margin: 10px 0 12px;
+      color: #dce4ef;
+      font-size: 11px;
+    }
+    #mmd-viewer-panel .mmd-range-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 5px;
+      color: #aeb9c9;
+    }
+    #mmd-viewer-panel .mmd-range-heading output {
+      color: #e8edf5;
+      font-variant-numeric: tabular-nums;
+    }
+    #mmd-viewer-panel input[type="range"] {
+      display: block;
+      width: 100%;
+      height: 18px;
+      margin: 0;
+      accent-color: #72a4ff;
+      cursor: pointer;
+    }
+    #mmd-viewer-panel input:disabled {
+      cursor: not-allowed;
+      opacity: .45;
+    }
     #mmd-viewer-panel .mmd-tree-help {
       margin: 0 0 8px;
       color: #94a1b4;

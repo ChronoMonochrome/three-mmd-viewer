@@ -12,7 +12,13 @@ import {
   ENABLE_FPS_COUNTER,
   type BreastSpringPresetName,
 } from './config';
-import { addSceneLighting } from './lighting';
+import { addSceneLighting, DEFAULT_LIGHTING_SETTINGS, type LightingSettings } from './lighting';
+import {
+  applyMaterialCompatibility,
+  DEFAULT_MATERIAL_COMPATIBILITY_SETTINGS,
+  type MaterialCompatibilitySettings,
+} from './materialCompatibility';
+import { createMMDOutlineEffect, type MMDOutlineEffectLike } from './outline';
 import { createViewerUI } from './viewerUI';
 
 const DEFAULT_MODEL_PATH = '/models/model.pmx';
@@ -93,6 +99,11 @@ async function init(): Promise<void> {
   let fpsCounterEnabled = ENABLE_FPS_COUNTER;
   let fpsFrameCount = 0;
   let fpsWindowStart = performance.now();
+  let lightingSettings: LightingSettings = { ...DEFAULT_LIGHTING_SETTINGS };
+  let materialCompatibilitySettings: MaterialCompatibilitySettings = {
+    ...DEFAULT_MATERIAL_COMPATIBILITY_SETTINGS,
+  };
+  let outlineEnabled = true;
 
   const hasAmmo = await ensureAmmoLoaded();
   if (!hasAmmo) {
@@ -129,7 +140,13 @@ async function init(): Promise<void> {
   controls.target.set(0, 11, 0);
   controls.update();
 
-  addSceneLighting(scene);
+  const sceneLighting = addSceneLighting(scene, lightingSettings);
+  let outlineEffect: MMDOutlineEffectLike | null = await createMMDOutlineEffect(renderer);
+  if (!outlineEffect) {
+    console.warn(
+      '[MMD] Outlines are unavailable. Update @takahirox/three-mmd to a version that exports MMDOutlineEffect to enable PMX outlines.',
+    );
+  }
   scene.add(new THREE.GridHelper(30, 30));
 
   const helper = new MMDAnimationHelper({ physics: hasAmmo });
@@ -165,11 +182,27 @@ async function init(): Promise<void> {
         selectedAnimation = selection;
         if (activeMesh) applySelectedAnimation(activeMesh);
       },
+      onLightingChange: (settings) => {
+        lightingSettings = { ...settings };
+        sceneLighting.update(lightingSettings);
+      },
+      onOutlineEnabledChange: (enabled) => {
+        outlineEnabled = enabled;
+        if (outlineEffect) outlineEffect.enabled = enabled;
+      },
+      onMaterialCompatibilityChange: (settings) => {
+        materialCompatibilitySettings = { ...settings };
+        if (activeMesh) applyMaterialCompatibility(activeMesh, materialCompatibilitySettings);
+      },
     },
     {
       initialSpringEnabled: ENABLE_BREAST_SPRING_MOD,
       initialFpsEnabled: ENABLE_FPS_COUNTER,
       initialPreset: DEFAULT_BREAST_SPRING_PRESET,
+      initialLighting: lightingSettings,
+      initialMaterialCompatibility: materialCompatibilitySettings,
+      initialOutlineEnabled: outlineEnabled,
+      outlineAvailable: outlineEffect !== null,
     },
   );
 
@@ -259,6 +292,7 @@ async function init(): Promise<void> {
 
         activeMesh = mesh;
         activeModelPath = path;
+        applyMaterialCompatibility(mesh, materialCompatibilitySettings);
         scene.add(mesh);
         viewerUI.setModel(mesh);
 
@@ -320,7 +354,12 @@ async function init(): Promise<void> {
     }
 
     controls.update();
-    renderer.render(scene, camera);
+    if (outlineEffect && outlineEnabled) {
+      outlineEffect.enabled = true;
+      outlineEffect.render(scene, camera);
+    } else {
+      renderer.render(scene, camera);
+    }
   }
 
   requestAnimationFrame(animate);
