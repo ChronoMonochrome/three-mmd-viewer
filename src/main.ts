@@ -1067,11 +1067,20 @@ async function init() {
   controls.target.set(0, 11, 0);
   controls.update();
 
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444455, 1.1);
+  // Мягкое освещение без пересвета PMX-материалов
+  const hemiLight = new THREE.HemisphereLight(
+    0xdfe7f2, // Цвет света сверху
+    0x34313a, // Цвет теней снизу
+    0.45      // Было 1.1
+  );
   hemiLight.position.set(0, 30, 0);
   scene.add(hemiLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  // Основной направленный свет
+  const dirLight = new THREE.DirectionalLight(
+    0xffffff,
+    0.55 // Было 1.2
+  );
   dirLight.position.set(10, 20, 15);
   scene.add(dirLight);
 
