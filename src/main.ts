@@ -7,10 +7,8 @@ import { MMDLoader, MMDAnimationHelper } from '@takahirox/three-mmd';
 const ENABLE_BREAST_SPRING_MOD = true;
 
 // Пресеты пружинной физики груди: от едва заметного до максимально выраженного.
-// Для переключения поменяй ACTIVE_BREAST_SPRING_PRESET.
-// Рекомендуемый стартовый вариант: 'strong'.
+// Пресет можно переключать в интерфейсе; по умолчанию используется extreme5.
 const BREAST_SPRING_PRESETS = {
-  // 1. Едва заметное движение, почти без дополнительного раскачивания.
   subtle: {
     stiffness: 55,
     damping: 11.5,
@@ -26,7 +24,6 @@ const BREAST_SPRING_PRESETS = {
     maxRollRad: 0.10,
   },
 
-  // 2. Мягкое, относительно естественное движение.
   natural: {
     stiffness: 45,
     damping: 9.5,
@@ -42,7 +39,6 @@ const BREAST_SPRING_PRESETS = {
     maxRollRad: 0.13,
   },
 
-  // 3. Хорошо заметное движение без намеренно экстремальной амплитуды.
   noticeable: {
     stiffness: 36,
     damping: 8.0,
@@ -58,7 +54,6 @@ const BREAST_SPRING_PRESETS = {
     maxRollRad: 0.17,
   },
 
-  // 4. Сильный bounce. Выбран по умолчанию, чтобы эффект был явно виден.
   strong: {
     stiffness: 30,
     damping: 7.0,
@@ -74,7 +69,6 @@ const BREAST_SPRING_PRESETS = {
     maxRollRad: 0.21,
   },
 
-  // 5. Максимальная амплитуда. Может выглядеть преувеличенно на некоторых моделях.
   extreme: {
     stiffness: 25,
     damping: 6.0,
@@ -89,6 +83,7 @@ const BREAST_SPRING_PRESETS = {
     maxYawRad: 0.15,
     maxRollRad: 0.25,
   },
+
   extreme2: {
     stiffness: 23,
     damping: 5.8,
@@ -237,14 +232,14 @@ const BREAST_SPRING_PRESETS = {
     maxPitchRad: 1.36, // 77.9°
     maxYawRad: 0.25,
     maxRollRad: 0.40,
-  }
+  },
 } as const;
 
 type BreastSpringPresetName = keyof typeof BREAST_SPRING_PRESETS;
+type BreastSpringConfig = (typeof BREAST_SPRING_PRESETS)[BreastSpringPresetName];
 
-// Доступные варианты: 'subtle' | 'natural' | 'noticeable' | 'strong' | 'extreme'.
-const ACTIVE_BREAST_SPRING_PRESET: BreastSpringPresetName = 'extreme5';
-const BREAST_SPRING_CONFIG = BREAST_SPRING_PRESETS[ACTIVE_BREAST_SPRING_PRESET];
+// Этот пресет выбран по умолчанию. Его также можно менять в интерфейсе.
+let activeBreastSpringPreset: BreastSpringPresetName = 'extreme9';
 
 const BREAST_BONE_INCLUDE_REGEX = /(左胸|右胸|胸|乳|breast|boob|bust|oppai)/i;
 const BREAST_BONE_EXCLUDE_REGEX = /(親|ジンバル|アンカー|先|parent|gimbal|anchor|tip)/i;
@@ -377,7 +372,10 @@ async function ensureAmmoLoaded(): Promise<boolean> {
   return false;
 }
 
-function createBreastSpringController(mesh: THREE.SkinnedMesh) {
+function createBreastSpringController(
+  mesh: THREE.SkinnedMesh,
+  getConfig: () => BreastSpringConfig,
+) {
   const bones = mesh.skeleton?.bones ?? [];
   const targetBones = selectTargetBreastBones(bones);
 
@@ -394,10 +392,7 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
                                                                  hasAppliedSpring: false,
   }));
 
-  console.info(
-    `[BreastSpringMod] Пресет: ${ACTIVE_BREAST_SPRING_PRESET}`,
-    BREAST_SPRING_CONFIG,
-  );
+  console.info('[BreastSpringMod] Контроллер пружины создан.');
 
   if (states.length > 0) {
     console.log(
@@ -478,6 +473,9 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
         return;
       }
 
+      // Конфигурация перечитывается каждый кадр, поэтому пресет можно менять на лету.
+      const config = getConfig();
+
       // Защищаем интегратор от слишком больших скачков времени.
       const safeDt = Math.min(dt, 0.033);
 
@@ -488,7 +486,7 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
       }
 
       let appliedAny = false;
-      const pitchSign = BREAST_SPRING_CONFIG.invertPitch ? -1 : 1;
+      const pitchSign = config.invertPitch ? -1 : 1;
 
       for (let i = 0; i < states.length; i++) {
         const state = states[i];
@@ -522,31 +520,31 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
 
         state.smoothedLocalAccel.lerp(
           localAccel,
-          BREAST_SPRING_CONFIG.accelSmoothing,
+          config.accelSmoothing,
         );
 
         const ax = THREE.MathUtils.clamp(
           state.smoothedLocalAccel.x,
-          -BREAST_SPRING_CONFIG.maxAccel,
-          BREAST_SPRING_CONFIG.maxAccel,
+          -config.maxAccel,
+          config.maxAccel,
         );
         const ay = THREE.MathUtils.clamp(
           state.smoothedLocalAccel.y,
-          -BREAST_SPRING_CONFIG.maxAccel,
-          BREAST_SPRING_CONFIG.maxAccel,
+          -config.maxAccel,
+          config.maxAccel,
         );
         const az = THREE.MathUtils.clamp(
           state.smoothedLocalAccel.z,
-          -BREAST_SPRING_CONFIG.maxAccel,
-          BREAST_SPRING_CONFIG.maxAccel,
+          -config.maxAccel,
+          config.maxAccel,
         );
 
         const forceX =
         pitchSign *
-        (ay * BREAST_SPRING_CONFIG.pitchFromAccelY +
-        az * BREAST_SPRING_CONFIG.pitchFromAccelZ);
-        const forceY = ax * BREAST_SPRING_CONFIG.yawFromAccelX;
-        const forceZ = -ax * BREAST_SPRING_CONFIG.rollFromAccelX;
+        (ay * config.pitchFromAccelY +
+        az * config.pitchFromAccelZ);
+        const forceY = ax * config.yawFromAccelX;
+        const forceZ = -ax * config.rollFromAccelX;
 
         if (shouldLog && i === 0) {
           console.log(
@@ -561,16 +559,16 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
         // Угловое ускорение: внешняя инерционная сила + возврат к нулю + демпфирование.
         const accelAngleX =
         forceX -
-          BREAST_SPRING_CONFIG.stiffness * state.angle.x -
-          BREAST_SPRING_CONFIG.damping * state.angularVel.x;
+          config.stiffness * state.angle.x -
+          config.damping * state.angularVel.x;
         const accelAngleY =
         forceY -
-          BREAST_SPRING_CONFIG.stiffness * state.angle.y -
-          BREAST_SPRING_CONFIG.damping * state.angularVel.y;
+          config.stiffness * state.angle.y -
+          config.damping * state.angularVel.y;
         const accelAngleZ =
         forceZ -
-          BREAST_SPRING_CONFIG.stiffness * state.angle.z -
-          BREAST_SPRING_CONFIG.damping * state.angularVel.z;
+          config.stiffness * state.angle.z -
+          config.damping * state.angularVel.z;
 
         state.angularVel.x += accelAngleX * safeDt;
         state.angularVel.y += accelAngleY * safeDt;
@@ -578,18 +576,18 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
 
         state.angle.x = THREE.MathUtils.clamp(
           state.angle.x + state.angularVel.x * safeDt,
-          -BREAST_SPRING_CONFIG.maxPitchRad,
-          BREAST_SPRING_CONFIG.maxPitchRad,
+          -config.maxPitchRad,
+          config.maxPitchRad,
         );
         state.angle.y = THREE.MathUtils.clamp(
           state.angle.y + state.angularVel.y * safeDt,
-          -BREAST_SPRING_CONFIG.maxYawRad,
-          BREAST_SPRING_CONFIG.maxYawRad,
+          -config.maxYawRad,
+          config.maxYawRad,
         );
         state.angle.z = THREE.MathUtils.clamp(
           state.angle.z + state.angularVel.z * safeDt,
-          -BREAST_SPRING_CONFIG.maxRollRad,
-          BREAST_SPRING_CONFIG.maxRollRad,
+          -config.maxRollRad,
+          config.maxRollRad,
         );
 
         springEuler.set(
@@ -613,8 +611,426 @@ function createBreastSpringController(mesh: THREE.SkinnedMesh) {
   };
 }
 
+
+const PRESET_DESCRIPTIONS: Record<BreastSpringPresetName, string> = {
+  subtle: 'едва заметный',
+  natural: 'мягкий',
+  noticeable: 'заметный',
+  strong: 'сильный',
+  extreme: 'экстремальный',
+  extreme2: 'экстремальный 2',
+  extreme3: 'экстремальный 3',
+  extreme4: 'экстремальный 4',
+  extreme5: 'экстремальный 5',
+  extreme6: 'экстремальный 6',
+  extreme7: 'экстремальный 7',
+  extreme8: 'экстремальный 8',
+  extreme9: 'экстремальный 9',
+  extreme10: 'экстремальный 10',
+  extreme11: 'экстремальный 11',
+};
+
+function installViewerStyles(): void {
+  if (document.getElementById('mmd-viewer-ui-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'mmd-viewer-ui-styles';
+  style.textContent = `
+  #mmd-viewer-panel {
+  position: fixed;
+  z-index: 20;
+  top: 14px;
+  right: 14px;
+  width: min(360px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #e8edf5;
+  background: rgba(20, 24, 32, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font: 13px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  #mmd-viewer-panel * { box-sizing: border-box; }
+  #mmd-viewer-panel .mmd-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  }
+  #mmd-viewer-panel .mmd-panel-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  }
+  #mmd-viewer-panel .mmd-panel-subtitle {
+  color: #98a4b6;
+  font-size: 11px;
+  }
+  #mmd-viewer-panel .mmd-panel-content {
+  overflow: auto;
+  padding: 10px 12px 14px;
+  }
+  #mmd-viewer-panel .mmd-section {
+  padding: 8px 2px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  }
+  #mmd-viewer-panel .mmd-section:last-child { border-bottom: 0; }
+  #mmd-viewer-panel .mmd-section-title {
+  margin: 0 0 9px;
+  color: #c9d4e4;
+  font-size: 12px;
+  font-weight: 700;
+  }
+  #mmd-viewer-panel .mmd-field-label {
+  display: block;
+  margin: 9px 0 5px;
+  color: #aeb9c9;
+  font-size: 11px;
+  }
+  #mmd-viewer-panel select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: #f2f5fa;
+  background: #2a313d;
+  border: 1px solid #465163;
+  border-radius: 7px;
+  outline: none;
+  font: inherit;
+  }
+  #mmd-viewer-panel select:focus { border-color: #7da7ff; }
+  #mmd-viewer-panel .mmd-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: #e2e8f1;
+  cursor: pointer;
+  user-select: none;
+  }
+  #mmd-viewer-panel input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #72a4ff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  }
+  #mmd-viewer-panel .mmd-active-preset {
+  margin-top: 6px;
+  color: #9eacc0;
+  font-size: 11px;
+  }
+  #mmd-viewer-panel .mmd-tree-help {
+  margin: 0 0 8px;
+  color: #94a1b4;
+  font-size: 11px;
+  }
+  #mmd-viewer-panel .mmd-tree {
+  padding: 5px 0 0;
+  color: #e0e7f0;
+  }
+  #mmd-viewer-panel .mmd-tree details { margin: 2px 0; }
+  #mmd-viewer-panel .mmd-tree summary {
+  display: flex;
+  align-items: center;
+  min-height: 27px;
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  list-style: none;
+  }
+  #mmd-viewer-panel .mmd-tree summary::-webkit-details-marker { display: none; }
+  #mmd-viewer-panel .mmd-tree summary::before {
+  content: '›';
+  display: inline-block;
+  width: 10px;
+  color: #93a2b7;
+  transition: transform .12s ease;
+  }
+  #mmd-viewer-panel .mmd-tree details[open] > summary::before { transform: rotate(90deg); }
+  #mmd-viewer-panel .mmd-tree .mmd-tree-leaf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 27px;
+  padding: 3px 5px 3px 22px;
+  border-radius: 5px;
+  }
+  #mmd-viewer-panel .mmd-tree summary:hover,
+  #mmd-viewer-panel .mmd-tree .mmd-tree-leaf:hover { background: rgba(255,255,255,.06); }
+  #mmd-viewer-panel .mmd-tree .mmd-tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  }
+  #mmd-viewer-panel .mmd-tree .mmd-tree-children {
+  margin-left: 13px;
+  padding-left: 7px;
+  border-left: 1px solid rgba(255,255,255,.12);
+  }
+  #mmd-viewer-panel .mmd-tree .mmd-tree-group > summary {
+  color: #aebed4;
+  font-size: 11px;
+  font-weight: 650;
+  }
+  #mmd-viewer-panel .mmd-tree .mmd-tree-group > summary::before { content: '›'; }
+  #mmd-viewer-panel .mmd-tree-empty {
+  padding: 8px 5px;
+  color: #a4afbf;
+  }
+  @media (max-width: 600px) {
+    #mmd-viewer-panel {
+    top: 8px;
+    right: 8px;
+    width: min(330px, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+    }
+  }
+  `;
+  document.head.appendChild(style);
+}
+
+function createTreeLeaf(
+  label: string,
+  checked: boolean,
+  onChange: (visible: boolean) => void,
+): HTMLElement {
+  const row = document.createElement('label');
+  row.className = 'mmd-tree-leaf';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = checked;
+  checkbox.addEventListener('change', () => onChange(checkbox.checked));
+
+  const text = document.createElement('span');
+  text.className = 'mmd-tree-label';
+  text.textContent = label;
+
+  row.append(checkbox, text);
+  return row;
+}
+
+function createTreeGroup(label: string, children: HTMLElement[]): HTMLElement {
+  const details = document.createElement('details');
+  details.className = 'mmd-tree-group';
+  details.open = true;
+
+  const summary = document.createElement('summary');
+  const text = document.createElement('span');
+  text.className = 'mmd-tree-label';
+  text.textContent = label;
+  summary.append(text);
+
+  const childContainer = document.createElement('div');
+  childContainer.className = 'mmd-tree-children';
+  childContainer.append(...children);
+
+  details.append(summary, childContainer);
+  return details;
+}
+
+function createObjectTreeNode(object: THREE.Object3D, fallbackLabel: string): HTMLElement | null {
+  // Кости скелета не являются отдельными деталями геометрии, поэтому не засоряем ими дерево.
+  if ((object as THREE.Bone).isBone) return null;
+
+  const label = object.name.trim() || fallbackLabel;
+  const children: HTMLElement[] = [];
+
+  const meshObject = object as THREE.Mesh;
+  if (meshObject.isMesh && meshObject.material) {
+    const materials = Array.isArray(meshObject.material)
+    ? meshObject.material
+    : [meshObject.material];
+
+    const materialRows = materials.map((material, index) => {
+      const materialLabel = material.name.trim() || `Материал ${index + 1}`;
+      return createTreeLeaf(materialLabel, material.visible, (visible) => {
+        material.visible = visible;
+      });
+    });
+
+    if (materialRows.length > 0) {
+      children.push(createTreeGroup(`Материалы / детали (${materials.length})`, materialRows));
+    }
+  }
+
+  object.children.forEach((child, index) => {
+    const childNode = createObjectTreeNode(child, `${child.type} ${index + 1}`);
+    if (childNode) children.push(childNode);
+  });
+
+    const details = document.createElement('details');
+    details.open = true;
+
+    const summary = document.createElement('summary');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = object.visible;
+    checkbox.addEventListener('click', (event) => event.stopPropagation());
+    checkbox.addEventListener('change', () => {
+      object.visible = checkbox.checked;
+    });
+
+    const text = document.createElement('span');
+    text.className = 'mmd-tree-label';
+    text.textContent = label;
+    summary.append(checkbox, text);
+
+    const childContainer = document.createElement('div');
+    childContainer.className = 'mmd-tree-children';
+    childContainer.append(...children);
+
+    details.append(summary, childContainer);
+    return details;
+}
+
+interface ViewerUICallbacks {
+  onPresetChange: (preset: BreastSpringPresetName) => void;
+  onSpringEnabledChange: (enabled: boolean) => void;
+}
+
+function createViewerUI(
+  callbacks: ViewerUICallbacks,
+): { setModel: (mesh: THREE.SkinnedMesh) => void } {
+  installViewerStyles();
+
+  const panel = document.createElement('aside');
+  panel.id = 'mmd-viewer-panel';
+
+  const header = document.createElement('header');
+  header.className = 'mmd-panel-header';
+  const titleWrap = document.createElement('div');
+  const title = document.createElement('h1');
+  title.className = 'mmd-panel-title';
+  title.textContent = 'MMD Viewer';
+  const subtitle = document.createElement('div');
+  subtitle.className = 'mmd-panel-subtitle';
+  subtitle.textContent = 'Настройки модели и физики';
+  titleWrap.append(title, subtitle);
+  header.append(titleWrap);
+
+  const content = document.createElement('div');
+  content.className = 'mmd-panel-content';
+
+  const physicsSection = document.createElement('section');
+  physicsSection.className = 'mmd-section';
+  const physicsTitle = document.createElement('h2');
+  physicsTitle.className = 'mmd-section-title';
+  physicsTitle.textContent = 'Физика груди';
+
+  const springLabel = document.createElement('label');
+  springLabel.className = 'mmd-check-row';
+  const springCheckbox = document.createElement('input');
+  springCheckbox.type = 'checkbox';
+  springCheckbox.checked = ENABLE_BREAST_SPRING_MOD;
+  const springText = document.createElement('span');
+  springText.textContent = 'Дополнительная пружина';
+  springLabel.append(springCheckbox, springText);
+
+  const presetLabel = document.createElement('label');
+  presetLabel.className = 'mmd-field-label';
+  presetLabel.textContent = 'Интенсивность';
+  const presetSelect = document.createElement('select');
+  (Object.keys(BREAST_SPRING_PRESETS) as BreastSpringPresetName[]).forEach((preset) => {
+    const option = document.createElement('option');
+    option.value = preset;
+    option.textContent = `${preset} · ${PRESET_DESCRIPTIONS[preset]}`;
+    option.selected = preset === activeBreastSpringPreset;
+    presetSelect.append(option);
+  });
+
+  const activePresetText = document.createElement('div');
+  activePresetText.className = 'mmd-active-preset';
+  activePresetText.textContent = `Активный пресет: ${activeBreastSpringPreset}`;
+
+  springCheckbox.addEventListener('change', () => {
+    callbacks.onSpringEnabledChange(springCheckbox.checked);
+  });
+
+  presetSelect.addEventListener('change', () => {
+    const preset = presetSelect.value as BreastSpringPresetName;
+    if (!(preset in BREAST_SPRING_PRESETS)) return;
+    activePresetText.textContent = `Активный пресет: ${preset}`;
+    callbacks.onPresetChange(preset);
+  });
+
+  physicsSection.append(
+    physicsTitle,
+    springLabel,
+    presetLabel,
+    presetSelect,
+    activePresetText,
+  );
+
+  const treeSection = document.createElement('section');
+  treeSection.className = 'mmd-section';
+  const treeTitle = document.createElement('h2');
+  treeTitle.className = 'mmd-section-title';
+  treeTitle.textContent = 'Дерево модели';
+  const treeHelp = document.createElement('p');
+  treeHelp.className = 'mmd-tree-help';
+  treeHelp.textContent =
+  'Отключай объекты целиком или отдельные материалы. В PMX материалы часто соответствуют отдельным деталям модели.';
+  const treeContainer = document.createElement('div');
+  treeContainer.className = 'mmd-tree';
+  const loadingText = document.createElement('div');
+  loadingText.className = 'mmd-tree-empty';
+  loadingText.textContent = 'Ожидание загрузки модели…';
+  treeContainer.append(loadingText);
+
+  treeSection.append(treeTitle, treeHelp, treeContainer);
+  content.append(physicsSection, treeSection);
+  panel.append(header, content);
+  document.body.appendChild(panel);
+
+  return {
+    setModel(mesh: THREE.SkinnedMesh) {
+      treeContainer.replaceChildren();
+      const root = createObjectTreeNode(mesh, mesh.isSkinnedMesh ? 'Модель (SkinnedMesh)' : 'Модель');
+      if (root) {
+        treeContainer.append(root);
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'mmd-tree-empty';
+        empty.textContent = 'Не удалось построить дерево объектов модели.';
+        treeContainer.append(empty);
+      }
+    },
+  };
+}
+
 async function init() {
   window.__BREAST_SPRING_MOD__ = ENABLE_BREAST_SPRING_MOD;
+
+  let breastSpring: ReturnType<typeof createBreastSpringController> | null = null;
+  const viewerUI = createViewerUI({
+    onPresetChange: (preset) => {
+      activeBreastSpringPreset = preset;
+      console.info(
+        `[BreastSpringMod] Выбран пресет: ${preset}`,
+        BREAST_SPRING_PRESETS[preset],
+      );
+    },
+    onSpringEnabledChange: (enabled) => {
+      window.__BREAST_SPRING_MOD__ = enabled;
+      breastSpring?.reset();
+      console.info(
+        `[BreastSpringMod] ${enabled ? 'Включена' : 'Отключена'} дополнительная пружина.`,
+      );
+    },
+  });
 
   const hasAmmo = await ensureAmmoLoaded();
   if (!hasAmmo) {
@@ -665,14 +1081,17 @@ async function init() {
     physics: hasAmmo,
   });
 
-  let breastSpring: ReturnType<typeof createBreastSpringController> | null = null;
   const loader = new MMDLoader();
 
   loader.load(
     '/models/model.pmx',
     (mesh) => {
       scene.add(mesh);
-      breastSpring = createBreastSpringController(mesh);
+      viewerUI.setModel(mesh);
+      breastSpring = createBreastSpringController(
+        mesh,
+        () => BREAST_SPRING_PRESETS[activeBreastSpringPreset],
+      );
 
       loader.loadAnimation(
         '/animations/run.vmd',
